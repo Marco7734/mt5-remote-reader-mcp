@@ -1,6 +1,5 @@
 """
 ssh.py — Modulo SSH per mt5-remote-reader-mcp
-Gestisce la connessione alla VPS e l'esecuzione di mt5_tool.py
 """
 
 import json
@@ -21,11 +20,8 @@ def _ssh_connect(ip: str, username: str, password: str) -> paramiko.SSHClient:
     return client
 
 
-def _exec(client: paramiko.SSHClient, cmd: str, timeout: int = 300) -> tuple:
-    """Esegue un comando e aspetta il completamento. Ritorna (stdout, stderr)."""
-    _, stdout, stderr = client.exec_command(cmd, timeout=timeout)
-    # Aspetta che il comando finisca
-    stdout.channel.recv_exit_status()
+def _exec(client: paramiko.SSHClient, cmd: str) -> tuple:
+    _, stdout, stderr = client.exec_command(cmd)
     return stdout.read().decode("utf-8").strip(), stderr.read().decode("utf-8").strip()
 
 
@@ -55,50 +51,56 @@ def _setup_vps_sync(ip: str, username: str, password: str, mt5_tool_path: str) -
         if python_version and "Python" in python_version:
             steps.append(f"Python trovato: {python_version}")
         else:
-            # Scarica installer (può richiedere qualche minuto)
-            steps.append("Python non trovato — download installer in corso (attendere)...")
-            out, err = _exec(client, (
-                f'powershell -Command "Invoke-WebRequest -Uri \'{PYTHON_INSTALLER_URL}\' '
-                f'-OutFile \'{PYTHON_INSTALLER_PATH}\' -UseBasicParsing"'
-            ), timeout=300)
-
+            steps.append("Python non trovato — installazione in corso...")
+            # Imposta TLS 1.2 e scarica Python
+            _exec(client, '[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12')
+            _exec(client, (
+                f'powershell -Command "Invoke-WebRequest -Uri {PYTHON_INSTALLER_URL} '
+                f'-OutFile {PYTHON_INSTALLER_PATH}"'
+            ))
             # Installa silenziosamente
-            steps.append("Installazione Python in corso (attendere)...")
-            out, err = _exec(client, (
-                f'"{PYTHON_INSTALLER_PATH}" /quiet InstallAllUsers=1 PrependPath=1 Include_test=0'
-            ), timeout=300)
-
-            # Verifica installazione — serve aprire una nuova sessione per vedere il PATH aggiornato
-            client.close()
-            client = _ssh_connect(ip, username, password)
+            _exec(client, f'{PYTHON_INSTALLER_PATH} /quiet InstallAllUsers=1 PrependPath=1 Include_test=0')
+            # Verifica
             out, err = _exec(client, "python --version")
             python_version = out or err
             if "Python" in (python_version or ""):
                 steps.append(f"Python installato: {python_version}")
             else:
-                raise RuntimeError("Installazione Python fallita. Installa Python 3.8+ manualmente sulla VPS.")
+                raise RuntimeError(
+                    "Installazione Python fallita. "
+                    "Installa Python 3.8+ manualmente dalla VPS (python.org) "
+                    "e spunta 'Add Python to PATH' durante l'installazione."
+                )
 
         # 2. Installa librerie
         steps.append("Installazione MetaTrader5 e psutil...")
-        _exec(client, "python -m pip install MetaTrader5 psutil --quiet", timeout=180)
+        _exec(client, "python -m pip install MetaTrader5 psutil --quiet")
         steps.append("Librerie installate.")
 
         # 3. Copia mt5_tool.py via SFTP
         steps.append("Copia mt5_tool.py sulla VPS...")
-        local_mt5_tool = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "..", "mt5_tool.py")
-        )
+        # mt5_tool.py è dentro il package stesso
+        local_mt5_tool = os.path.join(os.path.dirname(__file__), "mt5_tool.py")
         if not os.path.exists(local_mt5_tool):
-            raise RuntimeError(f"mt5_tool.py non trovato localmente: {local_mt5_tool}")
+            raise RuntimeError(
+                f"mt5_tool.py non trovato in {local_mt5_tool}. "
+                "Reinstalla il pacchetto con: pip install --force-reinstall mt5-remote-reader-mcp"
+            )
         sftp = client.open_sftp()
         remote_path = mt5_tool_path.replace("\\", "/")
+        # Assicura che la cartella esista
+        remote_dir = "/".join(remote_path.split("/")[:-1])
+        try:
+            sftp.mkdir(remote_dir)
+        except Exception:
+            pass
         sftp.put(local_mt5_tool, remote_path)
         sftp.close()
         steps.append(f"mt5_tool.py copiato in {mt5_tool_path}")
 
         # 4. Test
         steps.append("Test connessione MT5...")
-        out, err = _exec(client, f"python {mt5_tool_path} --function list_terminals", timeout=30)
+        out, err = _exec(client, f"python {mt5_tool_path} --function list_terminals")
 
     finally:
         client.close()
