@@ -139,6 +139,22 @@ async def get_open_positions(vps: str, terminal: str) -> list:
 
 
 @mcp.tool
+async def get_account_info(vps: str, terminal: str) -> dict:
+    """
+    Ritorna le informazioni del conto MT5: balance, equity, margin, free margin,
+    margin level, profit flottante, valuta, leva, login, broker.
+
+    Args:
+        vps:      Nome amichevole della VPS in rubrica (es. "ftmo")
+        terminal: Nome corto del terminale, ottenuto da list_terminals
+    """
+    creds = get_vps_credentials(vps)
+    mt5_tool_path = MT5_TOOL_PATH.replace("Administrator", creds["username"])
+    return await run(creds["ip"], creds["username"], creds["password"],
+                     "get_account_info", terminal=terminal, mt5_tool_path=mt5_tool_path)
+
+
+@mcp.tool
 async def get_trade_history(vps: str, terminal: str, days: int = 30) -> list:
     """
     Ritorna lo storico dei trade chiusi negli ultimi N giorni.

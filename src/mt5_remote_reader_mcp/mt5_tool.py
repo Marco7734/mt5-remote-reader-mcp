@@ -57,6 +57,30 @@ def get_open_positions(terminal_path):
     return result
 
 
+def get_account_info(terminal_path):
+    connect(terminal_path)
+    acc = mt5.account_info()
+    if not acc:
+        disconnect()
+        return {"error": "impossibile leggere info conto"}
+    result = {
+        "login":        acc.login,
+        "name":         acc.name,
+        "server":       acc.server,
+        "broker":       acc.company,
+        "currency":     acc.currency,
+        "leverage":     acc.leverage,
+        "balance":      round(acc.balance, 2),
+        "equity":       round(acc.equity, 2),
+        "margin":       round(acc.margin, 2),
+        "margin_free":  round(acc.margin_free, 2),
+        "margin_level": round(acc.margin_level, 2) if acc.margin_level else None,
+        "profit":       round(acc.profit, 2),
+    }
+    disconnect()
+    return result
+
+
 def get_trade_history(terminal_path, days=30):
     connect(terminal_path)
     date_from = datetime.now() - timedelta(days=days)
@@ -254,7 +278,10 @@ if __name__ == "__main__":
         else:
             path = terminals[args.terminal]
             try:
-                if args.function == "get_open_positions":
+                if args.function == "get_account_info":
+                    print(json.dumps(get_account_info(path), indent=2))
+
+                elif args.function == "get_open_positions":
                     print(json.dumps(get_open_positions(path), indent=2))
 
                 elif args.function == "get_trade_history":
