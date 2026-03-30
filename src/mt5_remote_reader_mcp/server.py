@@ -99,6 +99,9 @@ async def connect_vps(vps: str) -> dict:
     - Copia mt5_tool.py sulla VPS
     - Testa la connessione con MT5 e ritorna i terminali trovati
 
+    Se SSH non è raggiungibile (VPS vergine), scarica automaticamente
+    setup_mt5_vps.exe in ~/Downloads e fornisce le istruzioni per eseguirlo.
+
     MetaTrader 5 deve essere già installato e loggato sulla VPS.
 
     Args:
@@ -106,7 +109,46 @@ async def connect_vps(vps: str) -> dict:
     """
     creds = get_vps_credentials(vps)
     mt5_tool_path = MT5_TOOL_PATH.replace("Administrator", creds["username"])
-    return await setup(creds["ip"], creds["username"], creds["password"], mt5_tool_path)
+    try:
+        return await setup(creds["ip"], creds["username"], creds["password"], mt5_tool_path)
+    except RuntimeError as e:
+        err_str = str(e).lower()
+        if any(k in err_str for k in ("ssh non raggiungibile", "connection refused", "timed out", "timeout", "ssh")):
+            # VPS vergine: SSH non ancora attivo — scarica l'installer automaticamente
+            installer_result = await get_vps_installer()
+            if installer_result.get("status") == "ok":
+                return {
+                    "status": "setup_required",
+                    "message": (
+                        "La VPS non ha SSH attivo: probabilmente è vergine e va preparata prima. "
+                        "Ho già scaricato il file di setup sul tuo Mac."
+                    ),
+                    "installer_path": installer_result["file"],
+                    "istruzioni": (
+                        "PASSAGGI DA SEGUIRE:\n"
+                        f"1. Vai in ~/Downloads e trovi il file: setup_mt5_vps.exe\n"
+                        "2. Collegati alla VPS tramite RDP (Remote Desktop).\n"
+                        "3. Copia setup_mt5_vps.exe dalla tua cartella Downloads alla VPS "
+                        "(trascina il file nella finestra RDP, oppure usa copia-incolla).\n"
+                        "4. Sulla VPS: tasto destro sul file → 'Esegui come amministratore'.\n"
+                        "5. Attendi il completamento (2-5 minuti). "
+                        "Vedrai una finestra nera con i progressi — non chiuderla.\n"
+                        "6. Quando la finestra si chiude da sola, torna qui e dimmi 'fatto' "
+                        "così riprovo la connessione."
+                    ),
+                }
+            else:
+                return {
+                    "status": "setup_required",
+                    "message": "La VPS non ha SSH attivo e non ho potuto scaricare l'installer automaticamente.",
+                    "download_error": installer_result.get("message", ""),
+                    "istruzioni": (
+                        "Scarica manualmente setup_mt5_vps.exe da: "
+                        "https://github.com/Marco7734/mt5-remote-reader-mcp/releases/latest "
+                        "e seguila sulla VPS come amministratore."
+                    ),
+                }
+        raise
 
 
 _INSTALLER_URL = (
