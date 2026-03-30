@@ -4,6 +4,34 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [0.5.0] — 2026-03-30
+
+### Added — VPS installer embedded + tool get_vps_installer
+
+- `setup_vps_installer.py`: installer Windows incluso nel pacchetto — installa OpenSSH,
+  Python, MetaTrader5, psutil e mt5_tool.py su una VPS vergine (gira sulla VPS, non via SSH)
+- Nuovo tool MCP `get_vps_installer`: scarica `setup_mt5_vps.exe` da GitHub Releases
+  in ~/Downloads e restituisce istruzioni per configurare una VPS vergine prima di usare connect_vps
+- `build_exe.bat`: script per ricompilare l'exe su Windows dopo modifiche al sorgente
+- `ssh.py`: errore SSH più descrittivo — suggerisce get_vps_installer se la connessione fallisce
+
+### Changed
+
+- `server.py` instructions: aggiornate per guidare l'agente all'uso di get_vps_installer
+  quando connect_vps fallisce per SSH non disponibile
+
+---
+
+## [0.4.0] — 2026-03-29
+
+### Added
+
+- Tool `get_account_info(vps, terminal)`: ritorna balance, equity, margin, free margin,
+  margin level, profit flottante, valuta, leva, login, broker del conto MT5
+- Funzione `get_account_info(terminal_path)` in `mt5_tool.py` lato VPS
+
+---
+
 ## [0.3.0] — 2026-03-28
 
 ### Added — Rubrica VPS locale cifrata

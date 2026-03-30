@@ -7,6 +7,8 @@ from fastmcp import FastMCP
 from .ssh import run, setup, DEFAULT_MT5_TOOL_PATH
 from .vps_manager import save_vps as _save_vps, list_vps as _list_vps, delete_vps as _delete_vps, get_vps_credentials
 import os
+import shutil
+import urllib.request
 
 mcp = FastMCP(
     name="mt5-remote-reader",
@@ -16,8 +18,12 @@ mcp = FastMCP(
         "Prima di tutto controlla le VPS disponibili con list_vps. "
         "Se non ce ne sono, chiedi all'utente le credenziali e usa save_vps per salvarle — "
         "non dovrà reinserirle mai più. "
-        "Poi usa connect_vps per configurare la VPS se è la prima volta, "
-        "list_terminals per scoprire i terminali disponibili, "
+        "Poi usa connect_vps per configurare la VPS se è la prima volta (installa Python, "
+        "le librerie e copia mt5_tool.py sulla VPS via SSH). "
+        "Se connect_vps fallisce perché SSH non è raggiungibile, la VPS è probabilmente "
+        "vergine e va prima configurata: usa get_vps_installer per ottenere il file exe "
+        "da far eseguire all'utente direttamente sulla VPS. "
+        "Dopo il setup usa list_terminals per scoprire i terminali disponibili, "
         "e infine i tool di monitoraggio con il nome corto del terminale. "
         "Questo server non esegue mai operazioni di trading — è esclusivamente in lettura."
     ),
@@ -101,6 +107,61 @@ async def connect_vps(vps: str) -> dict:
     creds = get_vps_credentials(vps)
     mt5_tool_path = MT5_TOOL_PATH.replace("Administrator", creds["username"])
     return await setup(creds["ip"], creds["username"], creds["password"], mt5_tool_path)
+
+
+_INSTALLER_URL = (
+    "https://github.com/Marco7734/mt5-remote-reader-mcp"
+    "/releases/latest/download/setup_mt5_vps.exe"
+)
+
+
+@mcp.tool
+async def get_vps_installer() -> dict:
+    """
+    Scarica setup_mt5_vps.exe in ~/Downloads e restituisce il percorso.
+
+    Usare quando connect_vps fallisce perché SSH non è ancora attivo sulla VPS.
+    L'exe va copiato sulla VPS Windows ed eseguito come amministratore:
+    tasto destro → "Esegui come amministratore".
+
+    L'exe installa automaticamente sulla VPS:
+    - OpenSSH Server (abilita la connessione SSH)
+    - Python 3.8
+    - Librerie MetaTrader5 e psutil
+    - mt5_tool.py sul Desktop della VPS
+
+    Dopo aver eseguito l'exe, tornare qui e richiamare connect_vps.
+    """
+    downloads = os.path.join(os.path.expanduser("~"), "Downloads")
+    os.makedirs(downloads, exist_ok=True)
+    dest = os.path.join(downloads, "setup_mt5_vps.exe")
+
+    try:
+        urllib.request.urlretrieve(_INSTALLER_URL, dest)
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return {
+                "status": "error",
+                "message": (
+                    "Nessuna release trovata su GitHub. "
+                    "Scarica manualmente l'installer da: "
+                    "https://github.com/Marco7734/mt5-remote-reader-mcp/releases"
+                )
+            }
+        return {"status": "error", "message": f"Errore download ({e.code}): {e}"}
+    except Exception as e:
+        return {"status": "error", "message": f"Download fallito: {e}"}
+
+    return {
+        "status": "ok",
+        "file": dest,
+        "istruzioni": (
+            "1. Copia il file sulla VPS Windows (via RDP → trascina il file). "
+            "2. Tasto destro sul file → 'Esegui come amministratore'. "
+            "3. Attendi il completamento (2-5 minuti). "
+            "4. Torna qui e chiama connect_vps per completare la configurazione."
+        )
+    }
 
 
 # ─────────────────────────────────────────────

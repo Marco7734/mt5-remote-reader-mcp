@@ -16,7 +16,14 @@ PYTHON_INSTALLER_PATH = r"C:\Windows\Temp\python-3.8.10-amd64.exe"
 def _ssh_connect(ip: str, username: str, password: str) -> paramiko.SSHClient:
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    client.connect(ip, username=username, password=password, timeout=15)
+    try:
+        client.connect(ip, username=username, password=password, timeout=15)
+    except (ConnectionRefusedError, TimeoutError, OSError) as e:
+        raise RuntimeError(
+            f"SSH non raggiungibile su {ip}: {e}. "
+            "Se la VPS è vergine, usa il tool get_vps_installer per ottenere "
+            "il file di setup da eseguire sulla VPS prima di procedere."
+        ) from e
     return client
 
 
