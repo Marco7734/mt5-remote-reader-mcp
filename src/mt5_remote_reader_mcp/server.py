@@ -228,26 +228,18 @@ async def get_vps_installer() -> dict:
 # ─────────────────────────────────────────────
 
 async def _fetch_vps_positions(vps_name: str) -> dict:
-    """Interroga una singola VPS: scopre i terminali e legge le posizioni di ognuno."""
+    """Interroga una singola VPS: legge terminali e posizioni di tutti in un'unica chiamata batch."""
     try:
         creds = get_vps_credentials(vps_name)
         mt5_tool_path = MT5_TOOL_PATH.replace("Administrator", creds["username"])
         ip, user, pwd = creds["ip"], creds["username"], creds["password"]
 
-        terminals = await run(ip, user, pwd, "list_terminals", mt5_tool_path=mt5_tool_path)
+        result = await run(ip, user, pwd, "get_all_positions", mt5_tool_path=mt5_tool_path)
 
-        if isinstance(terminals, dict) and "error" not in terminals:
-            positions_by_terminal = {}
-            for term_name in terminals:
-                try:
-                    positions = await run(ip, user, pwd, "get_open_positions",
-                                         terminal=term_name, mt5_tool_path=mt5_tool_path)
-                    positions_by_terminal[term_name] = positions
-                except Exception as e:
-                    positions_by_terminal[term_name] = {"error": str(e)}
-            return {"status": "ok", "terminals": positions_by_terminal}
+        if isinstance(result, dict) and "error" not in result:
+            return {"status": "ok", "terminals": result}
         else:
-            return {"status": "error", "detail": terminals}
+            return {"status": "error", "detail": result}
     except Exception as e:
         return {"status": "error", "detail": str(e)}
 

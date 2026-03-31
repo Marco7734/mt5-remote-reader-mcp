@@ -10,6 +10,7 @@ import time
 import threading
 import urllib.parse
 import paramiko
+from typing import Any
 
 DEFAULT_MT5_TOOL_PATH = r"C:\Users\Administrator\Desktop\mt5_tool.py"
 DEFAULT_VPS_USER = "Administrator"
@@ -26,6 +27,23 @@ _ssh_pool_lock = threading.Lock()
 _daemon_cache: dict[str, float] = {}
 _daemon_cache_lock = threading.Lock()
 _DAEMON_CACHE_TTL = 30.0  # secondi
+
+# ─── Result cache ────────────────────────────────────────────────────────────
+# Cache Mac-side delle risposte del daemon per evitare round trip SSH ripetuti.
+# Struttura: {(ip, function, terminal, days, lines, symbol): (timestamp, data)}
+_result_cache: dict[tuple, tuple[float, Any]] = {}
+_result_cache_lock = threading.Lock()
+
+_CACHE_TTL: dict[str, float] = {
+    "get_open_positions":  5.0,
+    "get_account_info":    5.0,
+    "get_all_positions":   5.0,
+    "list_terminals":     15.0,
+    "get_trade_history":  60.0,
+    "get_expert_log":     10.0,
+    "get_symbols":       300.0,
+    "get_symbol_info":    30.0,
+}
 
 
 def _ssh_connect(ip: str, username: str, password: str) -> paramiko.SSHClient:
@@ -149,6 +167,34 @@ def _query_daemon(
     return json.loads(data)
 
 
+def _query_daemon_cached(
+    client: paramiko.SSHClient,
+    function: str,
+    terminal: str | None,
+    days: int,
+    lines: int,
+    symbol: str | None,
+) -> dict | list:
+    """Come _query_daemon ma con cache Mac-side a TTL per evitare round trip ripetuti."""
+    ip = client.get_transport().getpeername()[0]
+    key = (ip, function, terminal, days, lines, symbol)
+    ttl = _CACHE_TTL.get(function, 10.0)
+
+    with _result_cache_lock:
+        entry = _result_cache.get(key)
+        if entry is not None:
+            ts, cached_data = entry
+            if time.time() - ts < ttl:
+                return cached_data  # cache hit: <1ms
+
+    result = _query_daemon(client, function, terminal, days, lines, symbol)
+
+    with _result_cache_lock:
+        _result_cache[key] = (time.time(), result)
+
+    return result
+
+
 # ─── Run via SSH ─────────────────────────────────────────────────────────────
 
 def _run_ssh(
@@ -171,7 +217,7 @@ def _run_ssh(
     if mt5_tool_path and function:
         try:
             if _ensure_daemon_running(client, mt5_tool_path):
-                result = _query_daemon(client, function, terminal, days, lines, symbol)
+                result = _query_daemon_cached(client, function, terminal, days, lines, symbol)
                 if not (isinstance(result, dict) and result.get("error") == "terminal_reconnecting"):
                     return result
         except Exception:
