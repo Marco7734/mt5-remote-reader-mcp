@@ -5,12 +5,19 @@ ssh.py — Modulo SSH per mt5-remote-reader-mcp
 import json
 import asyncio
 import os
+import time
+import threading
+import urllib.parse
 import paramiko
 
 DEFAULT_MT5_TOOL_PATH = r"C:\Users\Administrator\Desktop\mt5_tool.py"
 DEFAULT_VPS_USER = "Administrator"
 PYTHON_INSTALLER_URL = "https://www.python.org/ftp/python/3.8.10/python-3.8.10-amd64.exe"
 PYTHON_INSTALLER_PATH = r"C:\Windows\Temp\python-3.8.10-amd64.exe"
+
+# ─── SSH Connection Pool ─────────────────────────────────────────────────────
+_ssh_pool: dict[str, paramiko.SSHClient] = {}
+_ssh_pool_lock = threading.Lock()
 
 
 def _ssh_connect(ip: str, username: str, password: str) -> paramiko.SSHClient:
@@ -27,17 +34,136 @@ def _ssh_connect(ip: str, username: str, password: str) -> paramiko.SSHClient:
     return client
 
 
+def _get_ssh_client(ip: str, username: str, password: str) -> paramiko.SSHClient:
+    """Restituisce una connessione SSH dal pool, riconnettendo se necessario."""
+    with _ssh_pool_lock:
+        client = _ssh_pool.get(ip)
+        if client is not None:
+            transport = client.get_transport()
+            if transport is not None and transport.is_active():
+                return client
+            try:
+                client.close()
+            except Exception:
+                pass
+        client = _ssh_connect(ip, username, password)
+        _ssh_pool[ip] = client
+        return client
+
+
 def _exec(client: paramiko.SSHClient, cmd: str) -> tuple:
     _, stdout, stderr = client.exec_command(cmd)
     return stdout.read().decode("utf-8").strip(), stderr.read().decode("utf-8").strip()
 
 
-def _run_ssh(ip: str, username: str, password: str, cmd: str) -> dict:
-    client = _ssh_connect(ip, username, password)
+# ─── Daemon management ───────────────────────────────────────────────────────
+
+def _check_daemon(client: paramiko.SSHClient) -> bool:
+    """Verifica se il daemon MT5 è in ascolto su 127.0.0.1:9999."""
+    check_cmd = (
+        "python -c \""
+        "import socket; "
+        "s=socket.create_connection(('127.0.0.1',9999),2); "
+        "s.close(); "
+        "print('ok')"
+        "\""
+    )
+    out, _ = _exec(client, check_cmd)
+    return out.strip() == "ok"
+
+
+def _ensure_daemon_running(client: paramiko.SSHClient, mt5_tool_path: str) -> bool:
+    """Verifica che il daemon MT5 sia attivo; se no, lo avvia. Ritorna True se attivo."""
+    if _check_daemon(client):
+        return True
+
+    # Avvia daemon come processo detached (creationflags=8 = DETACHED_PROCESS su Windows)
+    path_repr = repr(mt5_tool_path)  # gestisce correttamente i backslash Windows
+    start_cmd = (
+        f"python -c \"import subprocess; "
+        f"subprocess.Popen(['python', {path_repr}, '--daemon'], creationflags=8)\""
+    )
+    _exec(client, start_cmd)
+
+    # Attende fino a 10 secondi (5 tentativi × 2s)
+    for _ in range(5):
+        time.sleep(2)
+        if _check_daemon(client):
+            return True
+
+    return False
+
+
+def _query_daemon(
+    client: paramiko.SSHClient,
+    function: str,
+    terminal: str | None,
+    days: int,
+    lines: int,
+    symbol: str | None,
+) -> dict | list:
+    """Interroga il daemon HTTP sulla VPS e ritorna il risultato JSON."""
+    params: dict[str, str] = {"function": function}
+    if terminal:
+        params["terminal"] = terminal
+    if days != 30:
+        params["days"] = str(days)
+    if lines != 100:
+        params["lines"] = str(lines)
+    if symbol:
+        params["symbol"] = urllib.parse.quote(symbol, safe="")
+
+    qs = "&".join(f"{k}={v}" for k, v in params.items())
+    url = f"http://127.0.0.1:9999/?{qs}"
+
+    query_cmd = (
+        f"python -c \"import urllib.request; "
+        f"print(urllib.request.urlopen('{url}', timeout=10).read().decode())\""
+    )
+    out, err = _exec(client, query_cmd)
+
+    if not out:
+        raise RuntimeError(f"Daemon non ha risposto. Stderr: {err}")
+
+    return json.loads(out)
+
+
+# ─── Run via SSH ─────────────────────────────────────────────────────────────
+
+def _run_ssh(
+    ip: str,
+    username: str,
+    password: str,
+    cmd: str,
+    mt5_tool_path: str | None = None,
+    function: str | None = None,
+    terminal: str | None = None,
+    days: int = 30,
+    lines: int = 100,
+    symbol: str | None = None,
+) -> dict | list:
+    # Step 1: ottieni connessione SSH dal pool (riusa se possibile)
+    client = _get_ssh_client(ip, username, password)
+
+    # Step 2: tenta via daemon (path veloce)
+    if mt5_tool_path and function:
+        try:
+            if _ensure_daemon_running(client, mt5_tool_path):
+                result = _query_daemon(client, function, terminal, days, lines, symbol)
+                if not (isinstance(result, dict) and result.get("error") == "terminal_reconnecting"):
+                    return result
+        except Exception:
+            pass  # fallback al metodo classico
+
+    # Step 3: fallback — esecuzione diretta di mt5_tool.py via SSH
     try:
         out, err = _exec(client, cmd)
-    finally:
-        client.close()
+    except (EOFError, paramiko.SSHException):
+        # Connessione stantia: rimuovi dal pool e riprova una volta
+        with _ssh_pool_lock:
+            _ssh_pool.pop(ip, None)
+        client = _get_ssh_client(ip, username, password)
+        out, err = _exec(client, cmd)
 
     if not out:
         raise RuntimeError(f"Nessun output dalla VPS. Stderr: {err}")
@@ -51,6 +177,8 @@ def _run_ssh(ip: str, username: str, password: str, cmd: str) -> dict:
 def _setup_vps_sync(ip: str, username: str, password: str, mt5_tool_path: str) -> dict:
     steps = []
     client = _ssh_connect(ip, username, password)
+    with _ssh_pool_lock:
+        _ssh_pool[ip] = client  # salva nel pool per riuso
     try:
         # 1. Controlla Python
         out, err = _exec(client, "python --version")
@@ -59,15 +187,12 @@ def _setup_vps_sync(ip: str, username: str, password: str, mt5_tool_path: str) -
             steps.append(f"Python trovato: {python_version}")
         else:
             steps.append("Python non trovato — installazione in corso...")
-            # Imposta TLS 1.2 e scarica Python
             _exec(client, '[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12')
             _exec(client, (
                 f'powershell -Command "Invoke-WebRequest -Uri {PYTHON_INSTALLER_URL} '
                 f'-OutFile {PYTHON_INSTALLER_PATH}"'
             ))
-            # Installa silenziosamente
             _exec(client, f'{PYTHON_INSTALLER_PATH} /quiet InstallAllUsers=1 PrependPath=1 Include_test=0')
-            # Verifica
             out, err = _exec(client, "python --version")
             python_version = out or err
             if "Python" in (python_version or ""):
@@ -86,7 +211,6 @@ def _setup_vps_sync(ip: str, username: str, password: str, mt5_tool_path: str) -
 
         # 3. Copia mt5_tool.py via SFTP
         steps.append("Copia mt5_tool.py sulla VPS...")
-        # mt5_tool.py è dentro il package stesso
         local_mt5_tool = os.path.join(os.path.dirname(__file__), "mt5_tool.py")
         if not os.path.exists(local_mt5_tool):
             raise RuntimeError(
@@ -95,7 +219,6 @@ def _setup_vps_sync(ip: str, username: str, password: str, mt5_tool_path: str) -
             )
         sftp = client.open_sftp()
         remote_path = mt5_tool_path.replace("\\", "/")
-        # Assicura che la cartella esista
         remote_dir = "/".join(remote_path.split("/")[:-1])
         try:
             sftp.mkdir(remote_dir)
@@ -105,12 +228,20 @@ def _setup_vps_sync(ip: str, username: str, password: str, mt5_tool_path: str) -
         sftp.close()
         steps.append(f"mt5_tool.py copiato in {mt5_tool_path}")
 
-        # 4. Test
+        # 4. Avvia daemon
+        steps.append("Avvio daemon MT5 (porta 9999)...")
+        daemon_ok = _ensure_daemon_running(client, mt5_tool_path)
+        if daemon_ok:
+            steps.append("Daemon attivo su 127.0.0.1:9999.")
+        else:
+            steps.append("Daemon non avviato — verrà avviato automaticamente alla prima query.")
+
+        # 5. Test
         steps.append("Test connessione MT5...")
         out, err = _exec(client, f"python {mt5_tool_path} --function list_terminals")
 
     finally:
-        client.close()
+        pass  # connessione resta nel pool, non si chiude
 
     if not out:
         return {
@@ -165,4 +296,7 @@ async def run(
         cmd += f" --symbol {symbol}"
 
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, _run_ssh, ip, username, password, cmd)
+    return await loop.run_in_executor(
+        None,
+        lambda: _run_ssh(ip, username, password, cmd, mt5_tool_path, function, terminal, days, lines, symbol)
+    )
