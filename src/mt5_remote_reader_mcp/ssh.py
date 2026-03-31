@@ -19,6 +19,13 @@ PYTHON_INSTALLER_PATH = r"C:\Windows\Temp\python-3.8.10-amd64.exe"
 _ssh_pool: dict[str, paramiko.SSHClient] = {}
 _ssh_pool_lock = threading.Lock()
 
+# ─── Daemon alive cache ───────────────────────────────────────────────────────
+# Evita di riverificare il daemon ad ogni chiamata.
+# Struttura: {ip: timestamp_ultima_verifica_ok}
+_daemon_cache: dict[str, float] = {}
+_daemon_cache_lock = threading.Lock()
+_DAEMON_CACHE_TTL = 30.0  # secondi
+
 
 def _ssh_connect(ip: str, username: str, password: str) -> paramiko.SSHClient:
     client = paramiko.SSHClient()
@@ -74,7 +81,15 @@ def _check_daemon(client: paramiko.SSHClient) -> bool:
 
 def _ensure_daemon_running(client: paramiko.SSHClient, mt5_tool_path: str) -> bool:
     """Verifica che il daemon MT5 sia attivo; se no, lo avvia. Ritorna True se attivo."""
+    ip = client.get_transport().getpeername()[0] if client.get_transport() else ""
+    with _daemon_cache_lock:
+        last_ok = _daemon_cache.get(ip, 0.0)
+        if time.time() - last_ok < _DAEMON_CACHE_TTL:
+            return True  # verificato di recente, skip check
+
     if _check_daemon(client):
+        with _daemon_cache_lock:
+            _daemon_cache[ip] = time.time()
         return True
 
     # Avvia daemon come processo detached (creationflags=8 = DETACHED_PROCESS su Windows)
@@ -89,6 +104,8 @@ def _ensure_daemon_running(client: paramiko.SSHClient, mt5_tool_path: str) -> bo
     for _ in range(5):
         time.sleep(2)
         if _check_daemon(client):
+            with _daemon_cache_lock:
+                _daemon_cache[ip] = time.time()
             return True
 
     return False
@@ -144,6 +161,7 @@ def _run_ssh(
 ) -> dict | list:
     # Step 1: ottieni connessione SSH dal pool (riusa se possibile)
     client = _get_ssh_client(ip, username, password)
+    _ip = ip  # alias per uso nel blocco except sotto
 
     # Step 2: tenta via daemon (path veloce)
     if mt5_tool_path and function:
@@ -153,6 +171,9 @@ def _run_ssh(
                 if not (isinstance(result, dict) and result.get("error") == "terminal_reconnecting"):
                     return result
         except Exception:
+            # Invalida cache così la prossima chiamata riverifica il daemon
+            with _daemon_cache_lock:
+                _daemon_cache.pop(_ip, None)
             pass  # fallback al metodo classico
 
     # Step 3: fallback — esecuzione diretta di mt5_tool.py via SSH
