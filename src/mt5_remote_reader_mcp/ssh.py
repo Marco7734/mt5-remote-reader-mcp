@@ -4,6 +4,7 @@ ssh.py — Modulo SSH per mt5-remote-reader-mcp
 
 import json
 import asyncio
+import http.client
 import os
 import time
 import threading
@@ -66,17 +67,14 @@ def _exec(client: paramiko.SSHClient, cmd: str) -> tuple:
 # ─── Daemon management ───────────────────────────────────────────────────────
 
 def _check_daemon(client: paramiko.SSHClient) -> bool:
-    """Verifica se il daemon MT5 è in ascolto su 127.0.0.1:9999."""
-    check_cmd = (
-        "python -c \""
-        "import socket; "
-        "s=socket.create_connection(('127.0.0.1',9999),2); "
-        "s.close(); "
-        "print('ok')"
-        "\""
-    )
-    out, _ = _exec(client, check_cmd)
-    return out.strip() == "ok"
+    """Verifica se il daemon MT5 è in ascolto su 127.0.0.1:9999 via SSH tunnel diretto."""
+    try:
+        transport = client.get_transport()
+        channel = transport.open_channel("direct-tcpip", ("127.0.0.1", 9999), ("127.0.0.1", 0))
+        channel.close()
+        return True
+    except Exception:
+        return False
 
 
 def _ensure_daemon_running(client: paramiko.SSHClient, mt5_tool_path: str) -> bool:
@@ -119,7 +117,9 @@ def _query_daemon(
     lines: int,
     symbol: str | None,
 ) -> dict | list:
-    """Interroga il daemon HTTP sulla VPS e ritorna il risultato JSON."""
+    """Interroga il daemon HTTP sulla VPS via SSH tunnel diretto.
+    Nessun processo Python avviato sulla VPS — il Mac parla direttamente col daemon.
+    """
     params: dict[str, str] = {"function": function}
     if terminal:
         params["terminal"] = terminal
@@ -131,18 +131,22 @@ def _query_daemon(
         params["symbol"] = urllib.parse.quote(symbol, safe="")
 
     qs = "&".join(f"{k}={v}" for k, v in params.items())
-    url = f"http://127.0.0.1:9999/?{qs}"
 
-    query_cmd = (
-        f"python -c \"import urllib.request; "
-        f"print(urllib.request.urlopen('{url}', timeout=10).read().decode())\""
-    )
-    out, err = _exec(client, query_cmd)
+    transport = client.get_transport()
+    channel = transport.open_channel("direct-tcpip", ("127.0.0.1", 9999), ("127.0.0.1", 0))
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", 9999, timeout=10)
+        conn.sock = channel  # bypassa connect(), usa il tunnel SSH
+        conn.request("GET", f"/?{qs}")
+        response = conn.getresponse()
+        data = response.read().decode("utf-8")
+    finally:
+        channel.close()
 
-    if not out:
-        raise RuntimeError(f"Daemon non ha risposto. Stderr: {err}")
+    if not data:
+        raise RuntimeError("Daemon non ha risposto.")
 
-    return json.loads(out)
+    return json.loads(data)
 
 
 # ─── Run via SSH ─────────────────────────────────────────────────────────────
