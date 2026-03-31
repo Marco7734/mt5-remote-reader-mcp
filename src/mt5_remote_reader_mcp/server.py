@@ -7,6 +7,7 @@ from fastmcp import FastMCP
 from .ssh import run, setup, DEFAULT_MT5_TOOL_PATH
 from .vps_manager import save_vps as _save_vps, list_vps as _list_vps, delete_vps as _delete_vps, get_vps_credentials
 from importlib.metadata import version as _pkg_version
+import asyncio
 import os
 import shutil
 import urllib.request
@@ -225,6 +226,61 @@ async def get_vps_installer() -> dict:
 # ─────────────────────────────────────────────
 #  TOOL DI MONITORAGGIO
 # ─────────────────────────────────────────────
+
+async def _fetch_vps_positions(vps_name: str) -> dict:
+    """Interroga una singola VPS: scopre i terminali e legge le posizioni di ognuno."""
+    try:
+        creds = get_vps_credentials(vps_name)
+        mt5_tool_path = MT5_TOOL_PATH.replace("Administrator", creds["username"])
+        ip, user, pwd = creds["ip"], creds["username"], creds["password"]
+
+        terminals = await run(ip, user, pwd, "list_terminals", mt5_tool_path=mt5_tool_path)
+
+        if isinstance(terminals, dict) and "error" not in terminals:
+            positions_by_terminal = {}
+            for term_name in terminals:
+                try:
+                    positions = await run(ip, user, pwd, "get_open_positions",
+                                         terminal=term_name, mt5_tool_path=mt5_tool_path)
+                    positions_by_terminal[term_name] = positions
+                except Exception as e:
+                    positions_by_terminal[term_name] = {"error": str(e)}
+            return {"status": "ok", "terminals": positions_by_terminal}
+        else:
+            return {"status": "error", "detail": terminals}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
+
+
+@mcp.tool
+async def get_all_open_positions() -> dict:
+    """
+    Legge le posizioni aperte su TUTTE le VPS in rubrica in parallelo.
+    Non serve specificare nulla: recupera automaticamente tutte le VPS salvate
+    e tutti i terminali MT5 attivi su ciascuna.
+
+    Usare questo tool invece di get_open_positions quando si vuole
+    una panoramica completa di tutti i conti monitorati.
+
+    Ritorna: {nome_vps: {nome_terminale: [posizioni]}} per ogni VPS raggiungibile.
+    Le VPS non raggiungibili compaiono con status "error" invece delle posizioni.
+    """
+    all_vps = _list_vps()
+    if not all_vps:
+        return {"status": "empty", "message": "Nessuna VPS in rubrica."}
+
+    names = list(all_vps.keys())
+    results = await asyncio.gather(
+        *[_fetch_vps_positions(name) for name in names],
+        return_exceptions=True
+    )
+
+    return {
+        name: (res if not isinstance(res, Exception) else {"status": "error", "detail": str(res)})
+        for name, res in zip(names, results)
+    }
+
+
 
 @mcp.tool
 async def list_terminals(vps: str) -> dict:
