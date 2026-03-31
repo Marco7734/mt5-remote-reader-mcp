@@ -6,9 +6,12 @@ Server MCP read-only per monitorare conti MetaTrader 5 su VPS Windows remote via
 from fastmcp import FastMCP
 from .ssh import run, setup, DEFAULT_MT5_TOOL_PATH
 from .vps_manager import save_vps as _save_vps, list_vps as _list_vps, delete_vps as _delete_vps, get_vps_credentials
+from importlib.metadata import version as _pkg_version
 import os
 import shutil
 import urllib.request
+
+_VERSION = _pkg_version("mt5-remote-reader-mcp")
 
 mcp = FastMCP(
     name="mt5-remote-reader",
@@ -30,6 +33,19 @@ mcp = FastMCP(
 )
 
 MT5_TOOL_PATH = os.environ.get("MT5_TOOL_PATH", DEFAULT_MT5_TOOL_PATH)
+
+
+# ─────────────────────────────────────────────
+#  VERSIONE
+# ─────────────────────────────────────────────
+
+@mcp.tool
+async def get_version() -> dict:
+    """
+    Restituisce la versione installata di mt5-remote-reader-mcp.
+    Utile per verificare che il package sia aggiornato.
+    """
+    return {"version": _VERSION, "package": "mt5-remote-reader-mcp"}
 
 
 # ─────────────────────────────────────────────
