@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mt5-remote-reader-mcp"
-version = "0.5.4"
+version = "0.5.5"
 description = "Read-only MCP server to monitor MetaTrader 5 accounts on remote Windows VPS via SSH"
 readme = "README.md"
 requires-python = ">=3.10"

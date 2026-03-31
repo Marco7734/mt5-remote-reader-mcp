@@ -11,6 +11,8 @@ import asyncio
 import os
 import shutil
 import urllib.request
+import xml.etree.ElementTree as _ET
+from email.utils import parsedate_to_datetime as _parsedate
 
 _VERSION = _pkg_version("mt5-remote-reader-mcp")
 
@@ -390,6 +392,72 @@ async def get_symbol_info(vps: str, terminal: str, symbol: str) -> dict:
     creds = get_vps_credentials(vps)
     mt5_tool_path = MT5_TOOL_PATH.replace("Administrator", creds["username"])
     return await run(creds["ip"], creds["username"], creds["password"], "get_symbol_info", terminal=terminal, symbol=symbol, mt5_tool_path=mt5_tool_path)
+
+
+# ─────────────────────────────────────────────
+#  NEWS DI MERCATO
+# ─────────────────────────────────────────────
+
+_NEWS_FEEDS = [
+    ("Reuters Markets",   "https://feeds.reuters.com/reuters/businessNews"),
+    ("Investing.com",     "https://www.investing.com/rss/news.rss"),
+    ("MarketWatch",       "https://feeds.marketwatch.com/marketwatch/realtimeheadlines/"),
+    ("FXStreet",          "https://www.fxstreet.com/rss/news"),
+]
+
+
+def _fetch_feed(name: str, url: str, limit: int) -> list:
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            raw = resp.read()
+        root = _ET.fromstring(raw)
+        ns = {"atom": "http://www.w3.org/2005/Atom"}
+        items = root.findall(".//item") or root.findall(".//atom:entry", ns)
+        results = []
+        for item in items[:limit]:
+            def t(tag):
+                el = item.find(tag) or item.find(f"atom:{tag}", ns)
+                return el.text.strip() if el is not None and el.text else ""
+            pub = t("pubDate") or t("published") or t("updated")
+            try:
+                pub = _parsedate(pub).strftime("%Y-%m-%d %H:%M") if pub else ""
+            except Exception:
+                pass
+            results.append({
+                "source": name,
+                "title":  t("title"),
+                "date":   pub,
+                "link":   t("link") or (item.find("atom:link", ns).get("href", "") if item.find("atom:link", ns) is not None else ""),
+            })
+        return results
+    except Exception as e:
+        return [{"source": name, "error": str(e)}]
+
+
+@mcp.tool
+async def get_market_news(limit: int = 5) -> list:
+    """
+    Recupera le ultime news dai principali feed finanziari:
+    Reuters, Investing.com, MarketWatch, FXStreet.
+
+    Args:
+        limit: numero di notizie da mostrare per fonte (default 5, max 20)
+    """
+    limit = min(max(1, limit), 20)
+    loop = asyncio.get_event_loop()
+    tasks = [
+        loop.run_in_executor(None, _fetch_feed, name, url, limit)
+        for name, url in _NEWS_FEEDS
+    ]
+    all_results = await asyncio.gather(*tasks)
+    # Appiattisce e ordina per data (più recenti prima)
+    news = [item for feed in all_results for item in feed if "error" not in item]
+    errors = [item for feed in all_results for item in feed if "error" in item]
+    news.sort(key=lambda x: x.get("date", ""), reverse=True)
+    if errors:
+        news.append({"note": "alcune fonti non raggiungibili", "details": errors})
+    return news
 
 
 def main():
