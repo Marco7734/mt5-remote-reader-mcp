@@ -100,6 +100,15 @@ REM -----------------------------------------------
 echo.
 echo [4/4] Compilazione exe...
 
+REM Legge la versione da pyproject.toml automaticamente
+for /f "delims=" %%v in ('powershell -Command "(Select-String -Path pyproject.toml -Pattern '^version = ').Line.Split(chr(34))[1]"') do set VERSION=%%v
+if "%VERSION%"=="" (
+    echo  ERRORE: versione non trovata in pyproject.toml
+    pause
+    exit /b 1
+)
+echo  Versione rilevata: %VERSION%
+
 if exist assets\mt5_icon.ico (
     set "ICON_FLAG=--icon assets\mt5_icon.ico"
     echo  Icona trovata: assets\mt5_icon.ico
@@ -113,15 +122,15 @@ echo.
 
 %PYTHON_CMD% -m PyInstaller --onefile --uac-admin --console ^
   --add-data "src\mt5_remote_reader_mcp\mt5_tool.py;." ^
-  --name setup_mt5_vps_0.6.1 ^
+  --name setup_mt5_vps_%VERSION% ^
   %ICON_FLAG% ^
   src\mt5_remote_reader_mcp\setup_vps_installer.py
 
 echo.
-if exist dist\setup_mt5_vps_0.6.1.exe (
+if exist dist\setup_mt5_vps_%VERSION%.exe (
     echo ============================================
     echo  BUILD COMPLETATA con successo!
-    echo  Output: dist\setup_mt5_vps_0.6.1.exe
+    echo  Output: dist\setup_mt5_vps_%VERSION%.exe
     echo ============================================
 ) else (
     echo ============================================
