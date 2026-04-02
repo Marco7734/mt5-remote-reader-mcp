@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [0.6.2] — 2026-04-02
+
+### Fixed — URL download installer
+
+- `get_vps_installer`: URL GitHub torna a `setup_mt5_vps.exe` (stabile)
+  mentre il file viene salvato localmente come `setup_mt5_vps_{version}.exe`
+  — risolve il 404 che bloccava ogni download
+
+---
+
 ## [0.6.1] — 2026-04-02
 
 ### Changed — Versione nel nome dei file

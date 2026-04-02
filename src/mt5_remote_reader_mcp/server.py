@@ -170,15 +170,15 @@ async def connect_vps(vps: str) -> dict:
 
 _INSTALLER_FILENAME = f"setup_mt5_vps_{_VERSION}.exe"
 _INSTALLER_URL = (
-    f"https://github.com/Marco7734/mt5-remote-reader-mcp"
-    f"/releases/latest/download/{_INSTALLER_FILENAME}"
+    "https://github.com/Marco7734/mt5-remote-reader-mcp"
+    "/releases/latest/download/setup_mt5_vps.exe"
 )
 
 
 @mcp.tool
 async def get_vps_installer() -> dict:
     """
-    Scarica setup_mt5_vps.exe in ~/Downloads e restituisce il percorso.
+    Scarica setup_mt5_vps_{version}.exe in ~/Downloads e restituisce il percorso.
 
     Usare quando connect_vps fallisce perché SSH non è ancora attivo sulla VPS.
     L'exe va copiato sulla VPS Windows ed eseguito come amministratore:
