@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [0.6.1] — 2026-04-02
+
+### Changed — Versione nel nome dei file
+
+- `setup_mt5_vps.exe` → `setup_mt5_vps_0.6.1.exe` (e versioni successive portano sempre il numero)
+- `build_exe.bat`: nome exe aggiornato con versione esplicita
+- `server.py`: URL download e nome file locale costruiti dinamicamente da `_VERSION`
+
+---
+
 ## [0.6.0] — 2026-04-02
 
 ### Added — SSH IP whitelist nel VPS installer

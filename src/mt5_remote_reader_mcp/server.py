@@ -168,9 +168,10 @@ async def connect_vps(vps: str) -> dict:
         raise
 
 
+_INSTALLER_FILENAME = f"setup_mt5_vps_{_VERSION}.exe"
 _INSTALLER_URL = (
-    "https://github.com/Marco7734/mt5-remote-reader-mcp"
-    "/releases/latest/download/setup_mt5_vps.exe"
+    f"https://github.com/Marco7734/mt5-remote-reader-mcp"
+    f"/releases/latest/download/{_INSTALLER_FILENAME}"
 )
 
 
@@ -193,7 +194,7 @@ async def get_vps_installer() -> dict:
     """
     downloads = os.path.join(os.path.expanduser("~"), "Downloads")
     os.makedirs(downloads, exist_ok=True)
-    dest = os.path.join(downloads, "setup_mt5_vps.exe")
+    dest = os.path.join(downloads, _INSTALLER_FILENAME)
 
     try:
         urllib.request.urlretrieve(_INSTALLER_URL, dest)

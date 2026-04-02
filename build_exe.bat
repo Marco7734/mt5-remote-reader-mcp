@@ -113,15 +113,15 @@ echo.
 
 %PYTHON_CMD% -m PyInstaller --onefile --uac-admin --console ^
   --add-data "src\mt5_remote_reader_mcp\mt5_tool.py;." ^
-  --name setup_mt5_vps ^
+  --name setup_mt5_vps_0.6.1 ^
   %ICON_FLAG% ^
   src\mt5_remote_reader_mcp\setup_vps_installer.py
 
 echo.
-if exist dist\setup_mt5_vps.exe (
+if exist dist\setup_mt5_vps_0.6.1.exe (
     echo ============================================
     echo  BUILD COMPLETATA con successo!
-    echo  Output: dist\setup_mt5_vps.exe
+    echo  Output: dist\setup_mt5_vps_0.6.1.exe
     echo ============================================
 ) else (
     echo ============================================
