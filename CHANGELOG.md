@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [0.6.4] — 2026-04-02
+
+### Fixed — Sync setup_vps_installer.py versione 0.6.2
+
+- `setup_vps_installer.py` nel pacchetto aggiornato a `__version__ = "0.6.2"`
+
+---
+
 ## [0.6.3] — 2026-04-02
 
 ### Changed — Nuovo installer Windows professionale
