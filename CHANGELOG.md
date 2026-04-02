@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [0.6.0] — 2026-04-02
+
+### Added — SSH IP whitelist nel VPS installer
+
+- `setup_vps_installer.py`: menu all'avvio con due opzioni (setup completo / gestione accessi SSH)
+- Funzione `manage_whitelist()`: permette di aggiungere manualmente IP autorizzati a connettersi
+  via SSH alla VPS, direttamente dall'exe sulla VPS
+- Gli IP vengono accumulati (non sostituiti) nella regola Windows Firewall tramite `_add_ip_to_whitelist()`
+- Al primo setup la porta 22 parte **bloccata per tutti** — nessun IP è autorizzato finché
+  l'utente non ne aggiunge uno esplicitamente dall'exe
+- Sezione "Sicurezza SSH" alla fine del setup: mostra gli IP autorizzati e permette di
+  aggiungerne uno prima di uscire
+- Messaggio finale esplicito: "Puoi chiudere questa finestra" — chiarisce che OpenSSH
+  e il daemon MT5 girano come servizi Windows indipendenti
+
+---
+
 ## [0.5.0] — 2026-03-30
 
 ### Added — VPS installer embedded + tool get_vps_installer
