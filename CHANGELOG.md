@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [0.6.3] — 2026-04-02
+
+### Changed — Nuovo installer Windows professionale
+
+- `get_vps_installer`: scarica ora `MT5RemoteReader_Setup_{version}.exe`
+  dal repo `mt5-vps-installer` (installer vero installabile nel Pannello di Controllo)
+- URL aggiornato a `github.com/Marco7734/mt5-vps-installer/releases/latest`
+
+---
+
 ## [0.6.2] — 2026-04-02
 
 ### Fixed — URL download installer
