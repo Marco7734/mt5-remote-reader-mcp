@@ -4,7 +4,7 @@ Server MCP read-only per monitorare conti MetaTrader 5 su VPS Windows remote via
 """
 
 from fastmcp import FastMCP
-from .ssh import run, setup, DEFAULT_MT5_TOOL_PATH
+from .ssh import run, setup, check_online, DEFAULT_MT5_TOOL_PATH
 from .vps_manager import save_vps as _save_vps, list_vps as _list_vps, delete_vps as _delete_vps, get_vps_credentials
 from importlib.metadata import version as _pkg_version
 import asyncio
@@ -245,6 +245,23 @@ async def _fetch_vps_positions(vps_name: str) -> dict:
         return {"status": "error", "detail": str(e)}
 
 
+async def _fetch_vps_account_info(vps_name: str) -> dict:
+    """Interroga una singola VPS: legge le info conto di tutti i terminali in un'unica chiamata batch."""
+    try:
+        creds = get_vps_credentials(vps_name)
+        mt5_tool_path = MT5_TOOL_PATH.replace("Administrator", creds["username"])
+        ip, user, pwd = creds["ip"], creds["username"], creds["password"]
+
+        result = await run(ip, user, pwd, "get_all_account_info", mt5_tool_path=mt5_tool_path)
+
+        if isinstance(result, dict) and "error" not in result:
+            return {"status": "ok", "terminals": result}
+        else:
+            return {"status": "error", "detail": result}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
+
+
 @mcp.tool
 async def get_all_open_positions() -> dict:
     """
@@ -273,6 +290,75 @@ async def get_all_open_positions() -> dict:
         for name, res in zip(names, results)
     }
 
+
+
+@mcp.tool
+async def get_all_account_info() -> dict:
+    """
+    Legge le informazioni di conto su TUTTE le VPS in rubrica in parallelo.
+    Non serve specificare nulla: recupera automaticamente tutte le VPS salvate
+    e tutti i terminali MT5 attivi su ciascuna.
+
+    Per ogni terminale restituisce: login, name, balance, equity, profit,
+    margin, free_margin, margin_level, currency, leverage, server, broker.
+
+    Usare questo tool invece di get_account_info quando si vuole
+    una panoramica completa di tutti i conti monitorati.
+
+    Ritorna: {nome_vps: {nome_terminale: {info_conto}}} per ogni VPS raggiungibile.
+    Le VPS non raggiungibili compaiono con status "error" invece delle info conto.
+    """
+    all_vps = _list_vps()
+    if not all_vps:
+        return {"status": "empty", "message": "Nessuna VPS in rubrica."}
+
+    names = list(all_vps.keys())
+    results = await asyncio.gather(
+        *[_fetch_vps_account_info(name) for name in names],
+        return_exceptions=True
+    )
+
+    return {
+        name: (res if not isinstance(res, Exception) else {"status": "error", "detail": str(res)})
+        for name, res in zip(names, results)
+    }
+
+
+@mcp.tool
+async def check_vps_status(vps: str = None) -> dict:
+    """
+    Verifica se una o tutte le VPS sono raggiungibili via SSH (health check leggero).
+    Non interroga MT5 — è solo un ping SSH con timeout breve (5 secondi).
+
+    Utile per:
+    - Diagnostica rapida prima di operazioni più complesse
+    - Capire subito se un problema è di rete o di MT5
+    - Monitoraggio dello stato delle VPS
+
+    Args:
+        vps: Nome della VPS da controllare (es. "ftmo"). Se omesso, controlla tutte le VPS in parallelo.
+
+    Ritorna per ogni VPS: status ("online"/"offline"/"error"), ping_ms (se online), ip, error (se offline).
+    """
+    all_vps = _list_vps()
+    if not all_vps:
+        return {"status": "empty", "message": "Nessuna VPS in rubrica."}
+
+    if vps:
+        creds = get_vps_credentials(vps)
+        result = await check_online(creds["ip"], creds["username"], creds["password"])
+        return {vps: {"ip": creds["ip"], **result}}
+
+    async def _check_one(name: str) -> tuple:
+        try:
+            creds = get_vps_credentials(name)
+            result = await check_online(creds["ip"], creds["username"], creds["password"])
+            return name, {"ip": creds["ip"], **result}
+        except Exception as e:
+            return name, {"status": "error", "error": str(e)}
+
+    checks = await asyncio.gather(*[_check_one(name) for name in all_vps])
+    return dict(checks)
 
 
 @mcp.tool

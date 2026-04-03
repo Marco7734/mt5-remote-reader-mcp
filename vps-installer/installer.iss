@@ -21,12 +21,16 @@ ArchitecturesInstallIn64BitMode=x64compatible
 [Languages]
 Name: "italian"; MessagesFile: "compiler:Languages\Italian.isl"
 
+[Tasks]
+Name: "desktopicon"; Description: "Crea un collegamento sul {cm:DesktopIconGroupDescription}"; GroupDescription: "Icone aggiuntive:"
+
 [Files]
 Source: "..\dist\MT5RemoteReader.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{group}\Disinstalla {#MyAppName}"; Filename: "{uninstallexe}"
+Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Avvia MT5 Remote Reader"; Flags: postinstall nowait

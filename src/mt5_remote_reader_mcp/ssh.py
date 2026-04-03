@@ -35,14 +35,15 @@ _result_cache: dict[tuple, tuple[float, Any]] = {}
 _result_cache_lock = threading.Lock()
 
 _CACHE_TTL: dict[str, float] = {
-    "get_open_positions":  5.0,
-    "get_account_info":    5.0,
-    "get_all_positions":   5.0,
-    "list_terminals":     15.0,
-    "get_trade_history":  60.0,
-    "get_expert_log":     10.0,
-    "get_symbols":       300.0,
-    "get_symbol_info":    30.0,
+    "get_open_positions":    5.0,
+    "get_account_info":      5.0,
+    "get_all_positions":     5.0,
+    "get_all_account_info":  5.0,
+    "list_terminals":       15.0,
+    "get_trade_history":    60.0,
+    "get_expert_log":       10.0,
+    "get_symbols":         300.0,
+    "get_symbol_info":      30.0,
 }
 
 
@@ -338,6 +339,29 @@ def _setup_vps_sync(ip: str, username: str, password: str, mt5_tool_path: str) -
             "message": "Setup completato ma risposta MT5 non valida. Verifica che MetaTrader 5 sia aperto.",
             "terminals": {}
         }
+
+
+def _check_online_sync(ip: str, username: str, password: str) -> dict:
+    """Tenta una connessione SSH con timeout breve e misura la latenza."""
+    start = time.time()
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    try:
+        client.connect(ip, username=username, password=password, timeout=5)
+        ping_ms = round((time.time() - start) * 1000)
+        client.close()
+        return {"status": "online", "ping_ms": ping_ms}
+    except paramiko.AuthenticationException as e:
+        return {"status": "error", "error": f"Credenziali errate: {e}"}
+    except (ConnectionRefusedError, TimeoutError, OSError) as e:
+        return {"status": "offline", "error": str(e)}
+    except Exception as e:
+        return {"status": "offline", "error": str(e)}
+
+
+async def check_online(ip: str, username: str, password: str) -> dict:
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _check_online_sync, ip, username, password)
 
 
 async def setup(ip: str, username: str, password: str, mt5_tool_path: str = DEFAULT_MT5_TOOL_PATH) -> dict:

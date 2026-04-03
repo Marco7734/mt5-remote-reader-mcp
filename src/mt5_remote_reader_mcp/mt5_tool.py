@@ -378,6 +378,16 @@ class _DaemonHandler(http.server.BaseHTTPRequestHandler):
                             }
                         except Exception as e:
                             result[t_name] = {"error": str(e)}
+                elif function == "get_all_account_info":
+                    result = {}
+                    all_terminals = discover_terminals()
+                    _daemon_terminal_paths.update(all_terminals)
+                    for t_name, t_path in all_terminals.items():
+                        try:
+                            _ensure_terminal(t_path)
+                            result[t_name] = get_account_info(t_path, already_connected=True)
+                        except Exception as e:
+                            result[t_name] = {"error": str(e)}
                 else:
                     result = {"error": "funzione non riconosciuta"}
 
