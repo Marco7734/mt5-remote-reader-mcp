@@ -10,7 +10,7 @@ Compilare con (su Windows):
     build_exe.bat
 """
 
-__version__ = "0.6.2"
+__version__ = "0.6.4"
 
 import subprocess
 import sys

@@ -170,7 +170,7 @@ async def connect_vps(vps: str) -> dict:
 
 _INSTALLER_FILENAME = f"MT5RemoteReader_Setup_{_VERSION}.exe"
 _INSTALLER_URL = (
-    "https://github.com/Marco7734/mt5-vps-installer"
+    "https://github.com/Marco7734/mt5-remote-reader-mcp"
     f"/releases/latest/download/MT5RemoteReader_Setup_{_VERSION}.exe"
 )
 
